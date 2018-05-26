@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>城市数据查看</title>
+    <link href="//cdn.bootcss.com/zTree.v3/3.5.33/css/zTreeStyle/zTreeStyle.min.css" rel="stylesheet">
+</head>
+<body>
+    <ul id="nodes" class="ztree"></ul>
+    <script src="//cdn.bootcss.com/jquery/1.8.3/jquery.min.js"></script>
+    <script src="//cdn.bootcss.com/zTree.v3/3.5.33/js/jquery.ztree.all.min.js"></script>
+    <script>
+        var url = 'https://raw.githack.com/zhanguangcheng/city/master/build/json/city_2017_11.json';
+        $.get(url, function(res) {
+            console.log(res);
+            var settings = {
+                data:{
+                    simpleData:{
+                        enable: true,
+                        pIdKey: "pid",
+                        rootPId: 0
+                    }
+                }
+            };
+            $.fn.zTree.init($("#nodes"), settings, res);
+        });
+    </script>
+</body>
+</html>
