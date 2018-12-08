@@ -2,9 +2,9 @@
 
 采集中国省市区行政区划数据，提供了3种格式，在原数据基础上加上了拼音和首拼。
 
-* [json](json/city.json)
-* [结构化json](json/city_struct.json)
-* [sql](sql/city.sql)
+* [json](build/json/city.json)
+* [结构化json](build/json/city_struct.json)
+* [sql](build/sql/city.sql)
 
 > 数据来源:<http://www.stats.gov.cn>
 
