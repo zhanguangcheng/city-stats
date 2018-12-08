@@ -1,33 +1,94 @@
 <?php
 /**
  * 解析中国省市区行政区划数据的一个类
- * http://www.mca.gov.cn/article/sj/tjbz/a/
+ * 数据来源:http://www.stats.gov.cn
  * @author  詹光成 <14712905@qq.com>
- * @date(2018-05-25)
+ * @date(2018-12-08)
  */
 class City
 {
-    private $url;
+    private $url = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/2017/%s.html';
+    private $city1_pattern = "/<td><a href='(\d\d)\.html'>(\D+?)<br\/><\/a><\/td>/";
+    private $city2_pattern = "/<td><a href='\d\d\/(\d{4})\.html'>(\D+?)<\/a><\/td>/";
+    private $city3_pattern = "/<td><a href='\d\d\/(\d{6})\.html'>(\D+?)<\/a><\/td>/";
+    private $curl;
 
     private $tableName = 'city';
-
-    public function __construct($url = null)
+    
+    public function __construct($curl)
     {
-        $this->setUrl($url);
+        $this->curl = $curl;
     }
 
     public function parse()
     {
-        /*
-        | id | pid | name |
-         */
         try {
-            $str = $this->get($this->url);
-            $list = $this->getList($str);
-            return $this->structuring($list);
+            return $this->getData();
         } catch (\Exception $e) {
             die($e->getMessage());
         }
+    }
+    
+    /**
+     * 获取数据
+     * @return array [id,pid,name,en,en_simple,children]
+     */
+    public function getData()
+    {
+        $url = sprintf($this->url, 'index');
+        if (!preg_match_all($this->city1_pattern, $this->get($url), $matches)) {
+            throw new Exception('city1 matches error');
+        }
+        $city_data = [];
+        for ($i=0; $i<count($matches[1]); $i++) {
+            $url = sprintf($this->url, $matches[1][$i]);
+            if (!preg_match_all($this->city2_pattern, $this->get($url), $matches2)) {
+                throw new Exception('city2 matches error');
+            }
+            $city2 = [];
+            for ($j=0; $j<count($matches2[1]); $j++) {
+                $url = sprintf($this->url, $matches[1][$i].'/'.$matches2[1][$j]);
+                if (preg_match_all($this->city3_pattern, $this->get($url), $matches3)) {
+                    $city3 = [];
+                    for ($k=0; $k<count($matches3[1]); $k++) {
+                        $city3[$matches3[1][$k]] = [
+                            'id'=>$matches3[1][$k],
+                            'pid'=>$matches2[1][$j] . '00',
+                            'name'=>$matches3[2][$k],
+                            'en'=>$this->toEn($matches3[2][$k], 'normal'),
+                            'en_simple'=>$this->toEn($matches3[2][$k], 'simple'),
+                        ];
+                    }
+                    $city2[$matches2[1][$j] . '00'] = array(
+                        'id'=>$matches2[1][$j] . '00',
+                        'pid'=>$matches[1][$i] . '0000',
+                        'name'=>$matches2[2][$j],
+                        'en'=>$this->toEn($matches2[2][$j], 'normal'),
+                        'en_simple'=>$this->toEn($matches2[2][$j], 'simple'),
+                        'children'=>$city3
+                    );
+                } else {
+                    $city2[] = array(
+                        'id'=>$matches2[1][$j] . '00',
+                        'pid'=>$matches[1][$i] . '0000',
+                        'name'=>$matches2[2][$j],
+                        'en'=>$this->toEn($matches2[2][$j], 'normal'),
+                        'en_simple'=>$this->toEn($matches2[2][$j], 'simple'),
+                    );
+                }
+            }
+            echo $matches[1][$i] . '0000';
+            echo PHP_EOL;
+            $city_data[] = array(
+                'id'=>$matches[1][$i] . '0000',
+                'pid'=>0,
+                'name'=>$matches[2][$i],
+                'en'=>$this->toEn($matches[2][$i], 'normal'),
+                'en_simple'=>$this->toEn($matches[2][$i], 'simple'),
+                'children'=>$city2
+            );
+        }
+        return $city_data;
     }
 
     /**
@@ -35,16 +96,16 @@ class City
      */
     public function buildSql(&$data)
     {
-        $sql = "CREATE TABLE IF NOT EXISTS `$this->tableName`(\n    `id` MEDIUMINT UNSIGNED PRIMARY KEY,\n    `pid` MEDIUMINT UNSIGNED NOT NULL,\n    `name` VARCHAR(20) NOT NULL,\n    INDEX `pid`(`pid`)\n) engine=innodb default charset=utf8;\n\n";
+        $sql = "CREATE TABLE IF NOT EXISTS `$this->tableName`(\n    `id` MEDIUMINT UNSIGNED PRIMARY KEY,\n    `pid` MEDIUMINT UNSIGNED NOT NULL,\n    `name` VARCHAR(20) NOT NULL,\n    `en` VARCHAR(100) NOT NULL,\n    `en_simple` VARCHAR(20) NOT NULL,\n    INDEX `pid`(`pid`)\n) engine=innodb default charset=utf8;\n\n";
         $len = count($data);
         foreach ($data as $k => $v) {
             if ($k % 2000 == 0) {
-                $sql .= "INSERT INTO {$this->tableName} (id,pid,name) VALUES\n";
+                $sql .= "INSERT INTO {$this->tableName} (id,pid,name,en,en_simple) VALUES\n";
             }
             if (($k + 1) % 2000 == 0 || $len == $k + 1) {
-                $sql .= "({$v['id']},{$v['pid']},'{$v['name']}');\n\n";
+                $sql .= sprintf("(%d,%d,'%s','%s','%s');\n\n", $v['id'],$v['pid'],$v['name'],$v['en'],$v['en_simple']);
             } else {
-                $sql .= "({$v['id']},{$v['pid']},'{$v['name']}'),\n";
+                $sql .= sprintf("(%d,%d,'%s','%s','%s'),\n", $v['id'],$v['pid'],$v['name'],$v['en'],$v['en_simple']);
             }
         }
         return $sql;
@@ -72,20 +133,26 @@ class City
                 'id' => $pro['id'],
                 'pid' => 0,
                 'name' => $pro['name'],
+                'en' => $pro['en'],
+                'en_simple' => $pro['en_simple'],
             );
-            if (!isset($pro['sub'])) continue;
-            foreach ($pro['sub'] as $city) {
+            if (!isset($pro['children'])) continue;
+            foreach ($pro['children'] as $city) {
                 $data[] = array(
                     'id' => $city['id'],
                     'pid' => $pro['id'],
                     'name' => $city['name'],
+                    'en' => $city['en'],
+                    'en_simple' => $city['en_simple'],
                 );
-                if (!isset($city['sub'])) continue;
-                foreach ($city['sub'] as $area) {
+                if (!isset($city['children'])) continue;
+                foreach ($city['children'] as $area) {
                     $data[] = array(
                         'id' => $area['id'],
                         'pid' => $city['id'],
                         'name' => $area['name'],
+                        'en' => $area['en'],
+                        'en_simple' => $area['en_simple'],
                     );
                 }
             }
@@ -94,81 +161,29 @@ class City
         return $data;
     }
 
-    public function setUrl($url)
-    {
-        $this->url = $url;
-    }
-
     public function setTableName($tableName)
     {
         $this->tableName = $tableName;
     }
 
-    /**
-     * 结构化城市数据
-     * @param  array $list 列表数据
-     * @return array       ['id'=>, 'name'=>'', 'sub'=> ['id', 'name'=>'', sub'=>[...]]]
-     */
-    public function structuring($list)
-    {
-        if (empty($list)) {
-            throw new Exception('列表为空');
-        }
-        // 省份
-        $province = array_filter($list, function($v) {
-            return $v['id'] % 10000 === 0;
-        });
-        
-        // 城市 & 地区
-        foreach ($province as &$pro) {
-            $citys = array_filter($list, function($v) use($pro) {
-                return !strncmp($v['id'], $pro['id'], 2)
-                    // 省直辖的县级行政单位第3,4位是90开始的，县级市就从9001，各县就从9021开始排。
-                    // 11, 12, 31, 50是直辖市的前2位
-                    && ($v['id'] % 100 === 0 || substr($v['id'], 2, 2) === '90' || in_array(substr($v['id'], 0, 2), array(11, 12, 31, 50)))
-                    && $v['id'] % 10000 !== 0;
-            });
-            foreach ($citys as &$city) {
-                $area = array_filter($list, function($v) use($city) {
-                    return !strncmp($v['id'], $city['id'], 4)
-                        && (substr($city['id'], 2, 2) !== '90' && !in_array(substr($v['id'], 0, 2), array(11, 12, 31, 50)))
-                        && $v['id'] % 100 !== 0;
-                });
-                $area && $city['sub'] = array_values($area);
-            }
-            $citys && $pro['sub'] = array_values($citys);
-        }
-        return array_values($province);
-    }
-
     private function get($url)
     {
-        return file_get_contents($url);
+        return $this->convert($this->curl->get($url)->response);
     }
 
-    private function getList($str)
+    private function convert($str)
     {
-        $pattern = '/<td class=xl\d+>(\d+)<\/td>\n*\s*<td class=xl\d+>(.+?)<\/td>/';
-        if (!preg_match_all($pattern, $str, $arr)) {
-            throw new Exception('正则匹配失败');
-        }
-
-        // $result: ['id'=>110000, 'name'=>'北京市']
-        $result = array();
-        for ($i = 0; $i < count($arr[1]); $i++) {
-            $result[] = array('id' => (int) $arr[1][$i], 'name' => $this->stripTags($arr[2][$i]));
-        }
-        return $result;
+        return iconv('GBK','utf-8',$str);
     }
-
-    private function stripTags($str)
+    
+    private function toEn($str, $type = 'normal')
     {
-        return trim(strtr($str, array(
-            "<span style='mso-spacerun:yes'>" => '',
-            "</span>" => '',
-        )), '  ');
+        $res = transliterator_transliterate('Any-Latin; Latin-ASCII;', $str);
+        return $type === 'normal'
+            ? ucwords($res)
+            : implode('', array_map(function($v){return $v[0];}, explode(' ', $res)));
     }
-
+    
     private function jsonEncode($data)
     {
         if (defined('JSON_UNESCAPED_UNICODE')) {
