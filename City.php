@@ -9,8 +9,8 @@ class City
 {
     private $url = 'http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/2017/%s.html';
     private $city1_pattern = "/<td><a href='(\d\d)\.html'>(\D+?)<br\/><\/a><\/td>/";
-    private $city2_pattern = "/<td><a href='\d\d\/(\d{4})\.html'>(\D+?)<\/a><\/td>/";
-    private $city3_pattern = "/<td><a href='\d\d\/(\d{6})\.html'>(\D+?)<\/a><\/td>/";
+    private $city2_pattern = "/<td><a href='\d\d\/(\d{4})\.html'>([\x{4e00}-\x{9fa5}]+?)<\/a><\/td>/u";
+    private $city3_pattern = "/<tr class='countytr'><td>.*?(\d{6})\d{6}.*?>([\x{4e00}-\x{9fa5}]+?)<\//u";
     private $curl;
 
     private $tableName = 'city';
